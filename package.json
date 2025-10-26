@@ -34,13 +34,18 @@
       "tabs",
       "activeTab",
       "identity",
-      "scripting"
+      "scripting",
+      "sidePanel"
     ],
     "oauth2": {
-      "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+      "client_id": "1058639386381-uf7nhv3k603v97dmk89mvh956731h1n2.apps.googleusercontent.com",
       "scopes": [
         "https://www.googleapis.com/auth/spreadsheets"
       ]
-    }
+    },
+    "side_panel": {
+      "default_path": "sidepanel.html"
+    },
+    "action": {}
   }
 }

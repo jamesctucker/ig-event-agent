@@ -13,6 +13,13 @@ chrome.runtime.onInstalled.addListener(details => {
   }
 })
 
+// Open side panel when extension icon is clicked
+chrome.action.onClicked.addListener(async tab => {
+  if (tab.id) {
+    await chrome.sidePanel.open({ tabId: tab.id })
+  }
+})
+
 // Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'scrapePost') {
@@ -80,21 +87,56 @@ async function scrapePostInNewTab(
  */
 function extractPostData(): { caption: string; timestamp?: number } {
   try {
-    // Find the caption element
-    const captionElements = document.querySelectorAll('[class*="Caption"]')
     let caption = ''
 
-    for (const element of Array.from(captionElements)) {
-      const text = element.textContent?.trim()
-      if (text && text.length > caption.length) {
+    // Strategy 1: Look for h1 element (often contains the full caption)
+    const h1Elements = document.querySelectorAll('h1')
+    for (const h1 of Array.from(h1Elements)) {
+      const text = h1.textContent?.trim()
+      if (text && text.length > 50) {
+        // Likely the caption
         caption = text
+        break
       }
     }
 
-    // Try alternative selectors if no caption found
+    // Strategy 2: Look for specific Instagram caption selectors
     if (!caption) {
-      const altCaptionElement = document.querySelector('h1')
-      caption = altCaptionElement?.textContent?.trim() || ''
+      const captionSelectors = [
+        '[class*="Caption"]',
+        '[class*="caption"]',
+        'span[dir="auto"]',
+        'div[class*="Caption"] span'
+      ]
+
+      for (const selector of captionSelectors) {
+        const elements = document.querySelectorAll(selector)
+        for (const element of Array.from(elements)) {
+          const text = element.textContent?.trim()
+          if (text && text.length > caption.length && text.length > 20) {
+            caption = text
+          }
+        }
+      }
+    }
+
+    // Strategy 3: Look in meta tags
+    if (!caption || caption.length < 50) {
+      const metaDescription = document.querySelector('meta[property="og:description"]')
+      const metaCaption = metaDescription?.getAttribute('content')
+      if (metaCaption && metaCaption.length > caption.length) {
+        caption = metaCaption
+      }
+    }
+
+    // Clean up caption - remove username prefix if present
+    // Instagram often formats as "username: actual caption text"
+    const colonIndex = caption.indexOf(':')
+    if (colonIndex > 0 && colonIndex < 50) {
+      const afterColon = caption.substring(colonIndex + 1).trim()
+      if (afterColon.length > 20) {
+        caption = afterColon
+      }
     }
 
     // Try to find timestamp
@@ -102,6 +144,8 @@ function extractPostData(): { caption: string; timestamp?: number } {
     const timestamp = timeElement
       ? new Date(timeElement.getAttribute('datetime') || '').getTime()
       : undefined
+
+    console.log('Extracted caption length:', caption.length)
 
     return {
       caption,

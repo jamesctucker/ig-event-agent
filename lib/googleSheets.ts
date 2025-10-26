@@ -33,6 +33,8 @@ export async function saveEventsToGoogleSheets(events: Event[]): Promise<SaveRes
     // First, authenticate with Google (using OAuth2)
     const token = await getGoogleAuthToken()
 
+    console.log('Token:', token)
+
     if (!token) {
       throw new Error('Failed to authenticate with Google')
     }
