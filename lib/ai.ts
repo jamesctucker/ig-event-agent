@@ -30,7 +30,7 @@ interface EventInfo {
   location?: string // Venue/location
   organizer?: string // Event organizer/host
   cost?: string // Cost/price (e.g., "Free", "$15", "Free (registration required)")
-  summary?: string // Event description/summary
+  summary?: string // Event description/summary (max 25 words)
 }
 
 /**
@@ -63,7 +63,7 @@ Extract the following information ONLY if explicitly stated:
 - Location/Venue name with full address if available
 - Organizer/Host name
 - Cost information (e.g., "Free", "$15")
-- Summary/description of the event${dateRangeText}
+- Summary/description of the event (MAX 25 WORDS - keep it concise and informative)${dateRangeText}
 
 CRITICAL RULES:
 1. DO NOT calculate or infer dates from relative references like "this Sunday", "tomorrow", "next week"
@@ -154,7 +154,7 @@ Extract the following information ONLY if clearly visible:
 - Location/Venue name with full address if visible
 - Organizer/Host name
 - Cost information (e.g., "Free", "$15")
-- Summary/description of the event
+- Summary/description of the event (MAX 25 WORDS - keep it concise and informative)
 
 CRITICAL RULES:
 1. DO NOT guess dates or times - they must be clearly readable in the image

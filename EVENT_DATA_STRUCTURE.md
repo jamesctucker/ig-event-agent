@@ -103,7 +103,7 @@ Good examples:
 
 ## Summary/Description
 
-A brief but informative description of the event:
+A brief but informative description of the event (max 25 words):
 
 Good examples:
 

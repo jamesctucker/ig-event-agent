@@ -21,7 +21,7 @@ export interface ExtractedEvent {
   location?: string // Venue/location name
   organizer?: string // Event organizer/host
   cost?: string // Cost/price information
-  summary?: string // Event description/summary
+  summary?: string // Event description/summary (max 25 words)
   imageUrl?: string // Instagram image URL (optional)
   caption?: string // Original Instagram caption (optional)
 }
@@ -34,7 +34,7 @@ export interface EventInfo {
   location?: string // Venue/location
   organizer?: string // Event organizer
   cost?: string // Cost information
-  summary?: string // Event description
+  summary?: string // Event description (max 25 words)
 }
 
 export interface Progress {

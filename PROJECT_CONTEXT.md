@@ -90,7 +90,7 @@ interface ExtractedEvent {
   location?: string // Venue name with address
   organizer?: string // Host/organizer name
   cost?: string // e.g., "Free", "$15", "$10-$15 suggested donation"
-  summary?: string // Event description
+  summary?: string // Event description (max 25 words)
   imageUrl?: string // Instagram image URL
   caption?: string // Full Instagram caption
 }
