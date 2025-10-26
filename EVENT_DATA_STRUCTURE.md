@@ -103,7 +103,7 @@ Good examples:
 
 ## Summary/Description
 
-A brief but informative description of the event (max 25 words):
+A brief but engaging description of the event (max 25 words) written in newsletter style to appeal to local community readers:
 
 Good examples:
 
@@ -132,14 +132,14 @@ Here's a complete example matching the CSV structure:
 
 ## UI Display
 
-In the extension popup, events are displayed with icons:
+In the extension popup, events are displayed with Lucide icons:
 
-- 📅 Date
-- 🕐 Start time
-- 📍 Location
-- 👥 Organizer
-- 💰 Cost
-- 📝 Summary
+- Calendar icon - Date
+- Clock icon - Start time
+- MapPin icon - Location
+- Users icon - Organizer
+- DollarSign icon - Cost
+- FileText icon - Summary
 
 ## Migration from Old Structure
 
@@ -218,8 +218,8 @@ An event is considered valid if it has:
 
 5. **Summary field**
    - AI extracts from captions or flyer text
-   - Most informative part of the event
-   - Can be quite detailed
+   - Written in engaging, newsletter-style tone for local community readers
+   - Highlights what makes the event special and worth attending
 
 ## Future Enhancements
 

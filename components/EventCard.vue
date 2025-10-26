@@ -9,32 +9,32 @@
 
       <div class="event-details">
         <div v-if="event.date" class="detail">
-          <span class="icon">📅</span>
+          <Calendar :size="16" class="icon" />
           <span>{{ event.date }}</span>
         </div>
 
         <div v-if="event.start" class="detail">
-          <span class="icon">🕐</span>
+          <Clock :size="16" class="icon" />
           <span>{{ event.start }}</span>
         </div>
 
         <div v-if="event.location" class="detail">
-          <span class="icon">📍</span>
+          <MapPin :size="16" class="icon" />
           <span>{{ event.location }}</span>
         </div>
 
         <div v-if="event.organizer" class="detail">
-          <span class="icon">👥</span>
+          <Users :size="16" class="icon" />
           <span>{{ event.organizer }}</span>
         </div>
 
         <div v-if="event.cost" class="detail">
-          <span class="icon">💰</span>
+          <DollarSign :size="16" class="icon" />
           <span>{{ event.cost }}</span>
         </div>
 
         <div v-if="event.summary" class="detail summary">
-          <span class="icon">📝</span>
+          <FileText :size="16" class="icon" />
           <span>{{ event.summary }}</span>
         </div>
       </div>
@@ -47,6 +47,7 @@
 </template>
 
 <script setup lang="ts">
+import { Calendar, Clock, MapPin, Users, DollarSign, FileText } from 'lucide-vue-next'
 interface Event {
   name?: string
   url?: string
@@ -121,9 +122,9 @@ defineProps<Props>()
   color: rgba(255, 255, 255, 0.95);
 
   .icon {
-    font-size: 14px;
     opacity: 0.8;
     margin-top: 2px;
+    flex-shrink: 0;
   }
 
   &.summary {

@@ -8,6 +8,7 @@ A Chrome extension built with Plasmo that extracts event information from Instag
 
 - **Framework**: Plasmo (Chrome extension builder)
 - **UI**: Vue.js 3 with SCSS
+- **Icons**: Lucide Vue Next (modern, consistent icon library)
 - **AI**: OpenAI API (gpt-4.1 for both text and vision)
 - **APIs**:
   - Instagram Private API (`/api/v1/feed/collection/{id}/posts/`)

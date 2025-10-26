@@ -1,7 +1,7 @@
 <template>
   <div class="options-container">
     <header class="header">
-      <h1>⚙️ Settings</h1>
+      <h1><Settings :size="32" class="header-icon" /> Settings</h1>
       <p class="subtitle">Configure API keys and Google Sheets</p>
     </header>
 
@@ -100,6 +100,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Storage } from '@plasmohq/storage'
+import { Settings } from 'lucide-vue-next'
 
 interface Config {
   openaiApiKey: string
@@ -202,6 +203,14 @@ function showStatus(message: string, type: 'success' | 'error' | 'info') {
     margin: 0 0 12px 0;
     font-size: 32px;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+
+    .header-icon {
+      flex-shrink: 0;
+    }
   }
 
   .subtitle {

@@ -2,14 +2,14 @@
   <div class="sidepanel-container">
     <header class="header">
       <div class="header-content">
-        <h1>📅 Event Extractor</h1>
+        <h1><Calendar :size="28" class="header-icon" /> Event Extractor</h1>
         <p class="subtitle">Extract events from this Instagram collection</p>
       </div>
     </header>
 
     <div class="content">
       <div v-if="!isOnInstagram" class="warning">
-        <div class="warning-icon">⚠️</div>
+        <AlertTriangle :size="48" class="warning-icon" />
         <p>Please open an Instagram saved collection</p>
         <p class="hint">Navigate to: instagram.com/[username]/saved/[collection]</p>
       </div>
@@ -58,7 +58,7 @@
         <div v-if="extractedEvents.length > 0" class="events-section">
           <div class="section-header">
             <h3>
-              🎉 Found {{ extractedEvents.length }} Event{{
+              <Sparkles :size="20" class="inline-icon" /> Found {{ extractedEvents.length }} Event{{
                 extractedEvents.length !== 1 ? 's' : ''
               }}
             </h3>
@@ -88,23 +88,23 @@
                   <h4>{{ event.name || 'Untitled Event' }}</h4>
                   <div class="event-meta">
                     <div v-if="event.date" class="meta-item">
-                      <span class="icon">📅</span>
+                      <Calendar :size="16" class="icon" />
                       <span>{{ event.date }}</span>
                     </div>
                     <div v-if="event.start" class="meta-item">
-                      <span class="icon">⏰</span>
+                      <Clock :size="16" class="icon" />
                       <span>{{ event.start }}</span>
                     </div>
                     <div v-if="event.location" class="meta-item">
-                      <span class="icon">📍</span>
+                      <MapPin :size="16" class="icon" />
                       <span>{{ event.location }}</span>
                     </div>
                     <div v-if="event.organizer" class="meta-item">
-                      <span class="icon">👥</span>
+                      <Users :size="16" class="icon" />
                       <span>{{ event.organizer }}</span>
                     </div>
                     <div v-if="event.cost" class="meta-item">
-                      <span class="icon">💰</span>
+                      <DollarSign :size="16" class="icon" />
                       <span>{{ event.cost }}</span>
                     </div>
                   </div>
@@ -139,13 +139,13 @@
 
           <button class="btn-success" @click="saveToGoogleSheets" :disabled="saving">
             <span v-if="!saving">Save to Google Sheets</span>
-            <span v-else>⏳ Saving...</span>
+            <span v-else><Loader2 :size="16" class="spinning-icon" /> Saving...</span>
           </button>
         </div>
 
         <!-- Empty State -->
         <div v-else-if="hasSearched && !loading" class="empty-state">
-          <div class="empty-icon">🔍</div>
+          <Search :size="64" class="empty-icon" />
           <p>No events found in the selected date range</p>
           <p class="hint">Try adjusting your date range or scrolling to load more posts</p>
         </div>
@@ -162,6 +162,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { sendToBackground } from '@plasmohq/messaging'
+import {
+  Calendar,
+  Clock,
+  MapPin,
+  Users,
+  DollarSign,
+  Sparkles,
+  AlertTriangle,
+  Search,
+  Loader2
+} from 'lucide-vue-next'
 
 interface ExtractedEvent {
   name?: string
@@ -373,6 +384,13 @@ chrome.runtime.onMessage.addListener(message => {
       margin: 0 0 4px 0;
       font-size: 24px;
       font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .header-icon {
+        flex-shrink: 0;
+      }
     }
 
     .subtitle {
@@ -397,8 +415,8 @@ chrome.runtime.onMessage.addListener(message => {
   text-align: center;
 
   .warning-icon {
-    font-size: 48px;
     margin-bottom: 12px;
+    color: #fbbf24;
   }
 
   p {
@@ -630,6 +648,13 @@ chrome.runtime.onMessage.addListener(message => {
       font-size: 18px;
       font-weight: 700;
       color: #1a1a1a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .inline-icon {
+        flex-shrink: 0;
+      }
     }
 
     .header-actions {
@@ -717,8 +742,8 @@ chrome.runtime.onMessage.addListener(message => {
           color: #4b5563;
 
           .icon {
-            font-size: 16px;
-            width: 20px;
+            flex-shrink: 0;
+            opacity: 0.7;
           }
         }
       }
@@ -768,9 +793,9 @@ chrome.runtime.onMessage.addListener(message => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 
   .empty-icon {
-    font-size: 64px;
     margin-bottom: 16px;
     opacity: 0.5;
+    color: #6b7280;
   }
 
   p {
@@ -808,6 +833,22 @@ chrome.runtime.onMessage.addListener(message => {
     background: #dbeafe;
     color: #1e40af;
     border: 1px solid #93c5fd;
+  }
+}
+
+.spinning-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 

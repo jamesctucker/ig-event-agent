@@ -63,7 +63,7 @@ Extract the following information ONLY if explicitly stated:
 - Location/Venue name with full address if available
 - Organizer/Host name
 - Cost information (e.g., "Free", "$15")
-- Summary/description of the event (MAX 25 WORDS - keep it concise and informative)${dateRangeText}
+- Summary/description of the event (MAX 25 WORDS - write in an engaging, newsletter-style tone that would appeal to local community readers)${dateRangeText}
 
 CRITICAL RULES:
 1. DO NOT calculate or infer dates from relative references like "this Sunday", "tomorrow", "next week"
@@ -72,6 +72,7 @@ CRITICAL RULES:
 4. ONLY set hasEventInfo to true if you have: specific date (not "this Sunday"), start time, and location
 5. If a date is mentioned without a year (e.g., "Nov 8th"), assume it's ${year}
 6. Convert times to 12-hour format with AM/PM (e.g., "1-4pm" becomes "1:00:00 PM")
+7. For summaries: Write in an engaging, community-focused tone that would appeal to local newsletter readers - use active voice, highlight what makes the event special, and make it sound exciting and worth attending
 
 Respond in JSON format (ALWAYS fill in fields that are mentioned, even if hasEventInfo is false):
 {
@@ -91,7 +92,7 @@ Respond in JSON format (ALWAYS fill in fields that are mentioned, even if hasEve
         {
           role: 'system',
           content:
-            'You are an expert at extracting event information from social media posts. Extract ALL information that is explicitly mentioned (name, location, organizer, summary, cost), even if incomplete. ONLY set hasEventInfo to true when you have a specific date (not "this Sunday"), start time, and location. Never infer, calculate, or guess dates or times.'
+            'You are an expert at extracting event information from social media posts. Extract ALL information that is explicitly mentioned (name, location, organizer, summary, cost), even if incomplete. ONLY set hasEventInfo to true when you have a specific date (not "this Sunday"), start time, and location. Never infer, calculate, or guess dates or times. For summaries, write in an engaging, newsletter-style tone that would appeal to local community readers - use active voice, highlight what makes the event special, and make it sound exciting and worth attending.'
         },
         {
           role: 'user',
@@ -154,7 +155,7 @@ Extract the following information ONLY if clearly visible:
 - Location/Venue name with full address if visible
 - Organizer/Host name
 - Cost information (e.g., "Free", "$15")
-- Summary/description of the event (MAX 25 WORDS - keep it concise and informative)
+- Summary/description of the event (MAX 25 WORDS - write in an engaging, newsletter-style tone that would appeal to local community readers)
 
 CRITICAL RULES:
 1. DO NOT guess dates or times - they must be clearly readable in the image
@@ -162,7 +163,8 @@ CRITICAL RULES:
 3. ONLY set hasEventInfo to true if you can see: specific date, start time, and location
 4. If a date is shown without a year (e.g., "Nov 8th", "Saturday Nov 8"), assume it's ${year}
 5. Convert times to 12-hour format with AM/PM (e.g., "1-4pm" becomes "1:00:00 PM")
-6. Read ALL text carefully, including small print${dateRangeText}
+6. Read ALL text carefully, including small print
+7. For summaries: Write in an engaging, community-focused tone that would appeal to local newsletter readers - use active voice, highlight what makes the event special, and make it sound exciting and worth attending${dateRangeText}
 
 Respond in JSON format (ALWAYS fill in visible fields, even if hasEventInfo is false):
 {
@@ -182,7 +184,7 @@ Respond in JSON format (ALWAYS fill in visible fields, even if hasEventInfo is f
         {
           role: 'system',
           content:
-            'You are an expert at extracting event information from images. Extract ALL information that is clearly visible (name, location, organizer, summary, cost), even if incomplete. ONLY set hasEventInfo to true when you can clearly see a specific date, start time, and location. Never guess or infer information that is not visible.'
+            'You are an expert at extracting event information from images. Extract ALL information that is clearly visible (name, location, organizer, summary, cost), even if incomplete. ONLY set hasEventInfo to true when you can clearly see a specific date, start time, and location. Never guess or infer information that is not visible. For summaries, write in an engaging, newsletter-style tone that would appeal to local community readers - use active voice, highlight what makes the event special, and make it sound exciting and worth attending.'
         },
         {
           role: 'user',
