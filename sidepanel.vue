@@ -160,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { sendToBackground } from '@plasmohq/messaging'
 import {
   Calendar,
@@ -173,6 +173,7 @@ import {
   Search,
   Loader2
 } from 'lucide-vue-next'
+import { getApiConfig } from '~lib/storage'
 
 interface ExtractedEvent {
   name?: string
@@ -220,6 +221,16 @@ const canExtract = computed(() => {
   return startDate.value && endDate.value && !loading.value
 })
 
+// Listen for progress updates
+const messageHandler = (message: any) => {
+  if (message.type === 'progress') {
+    progress.value = message.progress
+  }
+  if (message.type === 'currentPost') {
+    currentPost.value = message.post
+  }
+}
+
 onMounted(async () => {
   try {
     // Check if we're on Instagram
@@ -247,6 +258,14 @@ onMounted(async () => {
 
   startDate.value = today.toISOString().split('T')[0]
   endDate.value = twoWeeksLater.toISOString().split('T')[0]
+
+  // Add message listener on mount
+  chrome.runtime.onMessage.addListener(messageHandler)
+})
+
+// Clean up message listener on unmount to prevent memory leaks
+onUnmounted(() => {
+  chrome.runtime.onMessage.removeListener(messageHandler)
 })
 
 async function extractEvents() {
@@ -258,6 +277,19 @@ async function extractEvents() {
     extractedEvents.value = []
     progress.value = { current: 0, total: 0 }
     currentPost.value = null
+    showStatus('Validating configuration...', 'info')
+
+    // Validate config before making expensive API calls
+    const config = await getApiConfig()
+    if (!config.openaiApiKey) {
+      showStatus('❌ OpenAI API key not configured. Please check the extension options.', 'error')
+      return
+    }
+    if (!config.googleSheetId) {
+      showStatus('❌ Google Sheet ID not configured. Please check the extension options.', 'error')
+      return
+    }
+
     showStatus('Starting extraction...', 'info')
 
     const response = (await sendToBackground({
@@ -343,16 +375,6 @@ function showStatus(message: string, type: 'success' | 'error' | 'info') {
     statusMessage.value = ''
   }, 5000)
 }
-
-// Listen for progress updates
-chrome.runtime.onMessage.addListener(message => {
-  if (message.type === 'progress') {
-    progress.value = message.progress
-  }
-  if (message.type === 'currentPost') {
-    currentPost.value = message.post
-  }
-})
 </script>
 
 <style lang="scss" scoped>

@@ -18,6 +18,55 @@ interface SaveResult {
 }
 
 /**
+ * Validate if a Google OAuth token is still valid
+ */
+async function validateGoogleToken(token: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}`
+    )
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Make a Google Sheets API call with automatic token refresh on 401
+ */
+async function callGoogleSheetsAPI(endpoint: string, options: RequestInit): Promise<Response> {
+  let currentToken = await getGoogleAuthToken()
+
+  if (!currentToken) {
+    throw new Error('Failed to authenticate with Google')
+  }
+
+  // First attempt with current token
+  let response = await fetch(endpoint, {
+    ...options,
+    headers: { ...options.headers, Authorization: `Bearer ${currentToken}` }
+  })
+
+  // If 401 (Unauthorized), attempt to refresh token and retry
+  if (response.status === 401) {
+    console.warn('⚠️ Google token expired (401), attempting to re-authenticate...')
+    const newToken = await getGoogleAuthToken() // Force re-auth
+
+    if (!newToken) {
+      throw new Error('Failed to re-authenticate with Google')
+    }
+
+    // Retry the request with new token
+    response = await fetch(endpoint, {
+      ...options,
+      headers: { ...options.headers, Authorization: `Bearer ${newToken}` }
+    })
+  }
+
+  return response
+}
+
+/**
  * Save events to Google Sheets using the Google Sheets API
  */
 
@@ -28,15 +77,6 @@ export async function saveEventsToGoogleSheets(events: Event[]): Promise<SaveRes
 
     if (!sheetId) {
       throw new Error('Google Sheet ID not configured')
-    }
-
-    // First, authenticate with Google (using OAuth2)
-    const token = await getGoogleAuthToken()
-
-    console.log('Token:', token)
-
-    if (!token) {
-      throw new Error('Failed to authenticate with Google')
     }
 
     // Prepare the data rows to match sustainable_events.csv structure
@@ -51,13 +91,12 @@ export async function saveEventsToGoogleSheets(events: Event[]): Promise<SaveRes
       event.summary || '' // Summary
     ])
 
-    // Append to the sheet
-    const response = await fetch(
+    // Append to the sheet using API wrapper with auto-retry on 401
+    const response = await callGoogleSheetsAPI(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1:append?valueInputOption=USER_ENTERED`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -68,6 +107,11 @@ export async function saveEventsToGoogleSheets(events: Event[]): Promise<SaveRes
 
     if (!response.ok) {
       const error = await response.text()
+      if (response.status === 401) {
+        throw new Error(
+          'Google authentication failed. Please re-authenticate in the extension options.'
+        )
+      }
       throw new Error(`Failed to save to Google Sheets: ${error}`)
     }
 
@@ -116,21 +160,23 @@ export async function initializeGoogleSheet(): Promise<SaveResult> {
       throw new Error('Google Sheet ID not configured')
     }
 
-    const token = await getGoogleAuthToken()
-
-    if (!token) {
-      throw new Error('Failed to authenticate with Google')
-    }
-
-    // Check if headers exist
-    const getResponse = await fetch(
+    // Check if headers exist using API wrapper with auto-retry on 401
+    const getResponse = await callGoogleSheetsAPI(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1:H1`,
       {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        method: 'GET',
+        headers: {}
       }
     )
+
+    if (!getResponse.ok) {
+      if (getResponse.status === 401) {
+        throw new Error(
+          'Google authentication failed. Please re-authenticate in the extension options.'
+        )
+      }
+      throw new Error(`Failed to read sheet: ${await getResponse.text()}`)
+    }
 
     const data = await getResponse.json()
 
@@ -138,12 +184,11 @@ export async function initializeGoogleSheet(): Promise<SaveResult> {
     if (!data.values || data.values.length === 0) {
       const headers = [['Name', 'URL', 'Date', 'Start', 'Location', 'Organizer', 'Cost', 'Summary']]
 
-      await fetch(
+      const putResponse = await callGoogleSheetsAPI(
         `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Sheet1!A1:H1?valueInputOption=USER_ENTERED`,
         {
           method: 'PUT',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -151,6 +196,15 @@ export async function initializeGoogleSheet(): Promise<SaveResult> {
           })
         }
       )
+
+      if (!putResponse.ok) {
+        if (putResponse.status === 401) {
+          throw new Error(
+            'Google authentication failed. Please re-authenticate in the extension options.'
+          )
+        }
+        throw new Error(`Failed to initialize sheet: ${await putResponse.text()}`)
+      }
     }
 
     return { success: true }
@@ -175,17 +229,13 @@ export async function testGoogleSheetsConnection(): Promise<boolean> {
       return false
     }
 
-    const token = await getGoogleAuthToken()
-
-    if (!token) {
-      return false
-    }
-
-    const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`, {
-      headers: {
-        Authorization: `Bearer ${token}`
+    const response = await callGoogleSheetsAPI(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}`,
+      {
+        method: 'GET',
+        headers: {}
       }
-    })
+    )
 
     return response.ok
   } catch (error) {

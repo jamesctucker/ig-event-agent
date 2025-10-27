@@ -109,7 +109,17 @@ Respond in JSON format (ALWAYS fill in fields that are mentioned, even if hasEve
       return { hasEventInfo: false }
     }
 
-    const eventInfo: EventInfo = JSON.parse(result)
+    let eventInfo: EventInfo
+    try {
+      eventInfo = JSON.parse(result)
+      // Validate response structure
+      if (!eventInfo || typeof eventInfo.hasEventInfo !== 'boolean') {
+        throw new Error('Invalid response structure: missing or invalid hasEventInfo field')
+      }
+    } catch (error) {
+      console.error('Failed to parse AI response:', result, error)
+      return { hasEventInfo: false }
+    }
     console.log('Caption analysis result:', eventInfo)
 
     // Validate that if hasEventInfo is true, we have the required fields
@@ -214,7 +224,17 @@ Respond in JSON format (ALWAYS fill in visible fields, even if hasEventInfo is f
       return { hasEventInfo: false }
     }
 
-    const eventInfo: EventInfo = JSON.parse(result)
+    let eventInfo: EventInfo
+    try {
+      eventInfo = JSON.parse(result)
+      // Validate response structure
+      if (!eventInfo || typeof eventInfo.hasEventInfo !== 'boolean') {
+        throw new Error('Invalid response structure: missing or invalid hasEventInfo field')
+      }
+    } catch (error) {
+      console.error('Failed to parse AI response:', result, error)
+      return { hasEventInfo: false }
+    }
     console.log('Image analysis result:', eventInfo)
 
     // Validate that if hasEventInfo is true, we have the required fields

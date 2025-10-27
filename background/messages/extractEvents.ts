@@ -11,28 +11,35 @@
 
 import type { PlasmoMessaging } from '@plasmohq/messaging'
 import { analyzeCaption, analyzeImage } from '~lib/ai'
+import { retry } from '~lib/utils'
 
 /**
  * Convert Instagram image URL to base64 data URI
  * This is needed because OpenAI can't access Instagram's protected CDN URLs
+ * Includes retry logic with exponential backoff for network failures
  */
 async function imageUrlToBase64(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url)
-    if (!response.ok) {
-      console.error('Failed to fetch image:', response.status)
-      return null
-    }
+    return await retry(
+      async () => {
+        const response = await fetch(url)
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image: HTTP ${response.status}`)
+        }
 
-    const blob = await response.blob()
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onloadend = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(blob)
-    })
+        const blob = await response.blob()
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        })
+      },
+      3, // maxRetries
+      500 // baseDelay in ms
+    )
   } catch (error) {
-    console.error('Error converting image to base64:', error)
+    console.error('❌ Failed to convert image to base64 after retries:', error)
     return null
   }
 }
@@ -79,8 +86,8 @@ function mergeEventInfo(
   }
 
   // After merging, check if we now have complete event info
-  // (we need date, start time, and at least one of name/location)
-  const hasCompleteInfo = !!(merged.date && merged.start && (merged.name || merged.location))
+  // Per spec: An event is complete if it has specific date + start time + LOCATION (location is required)
+  const hasCompleteInfo = !!(merged.date && merged.start && merged.location)
 
   return {
     hasEventInfo: hasCompleteInfo,
@@ -240,7 +247,7 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
     }
 
     // Send progress update
-    chrome.runtime.sendMessage({
+    await chrome.runtime.sendMessage({
       type: 'progress',
       progress: { current: 0, total: filteredPosts.length }
     })
@@ -251,13 +258,13 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
     for (let i = 0; i < filteredPosts.length; i++) {
       const post = filteredPosts[i]
 
-      // Update progress and show current post
-      chrome.runtime.sendMessage({
+      // Update progress and show current post - use await to ensure ordering
+      await chrome.runtime.sendMessage({
         type: 'progress',
         progress: { current: i + 1, total: filteredPosts.length }
       })
 
-      chrome.runtime.sendMessage({
+      await chrome.runtime.sendMessage({
         type: 'currentPost',
         post: post
       })
@@ -301,7 +308,7 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
               hasSummary: !!imageInfo?.summary
             })
           } else {
-            console.log('❌ Failed to fetch/convert image')
+            console.warn('⚠️ Image unavailable for post', post.postUrl)
           }
         } else {
           console.log('❌ No image URL available')
