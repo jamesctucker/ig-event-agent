@@ -7,14 +7,14 @@ A Chrome extension that extracts event information from Instagram saved collecti
 - 🔍 Browse and select Instagram saved collections
 - 📅 Filter events by date ranges
 - 🤖 AI-powered event detection from post captions and images
-- 🖼️ Multimodal GPT-4 Vision image analysis for accurate event details
+- 🖼️ Multimodal DeepSeek vision (deepseek-flash) image analysis for accurate event details
 - 📊 Automatic export to Google Sheets with full event metadata
 - 🔄 Automatic token refresh and retry logic for reliability
 
 ## ⚙️ Prerequisites
 
 - Google account with access to Google Cloud Console
-- OpenAI account with API access
+- DeepSeek account with API access (platform.deepseek.com)
 - Chrome browser
 - Node.js and npm (for development)
 
@@ -30,9 +30,9 @@ npm install
 
 This extension requires **two** API configurations. Both must be set up or extraction will fail.
 
-#### A. OpenAI API Key
+#### A. DeepSeek API Key
 
-1. Go to [OpenAI Platform](https://platform.openai.com/account/api-keys)
+1. Go to [DeepSeek Platform](https://platform.deepseek.com/)
 2. Create a new API key
 3. Save it somewhere safe (you'll need it in Step 3)
 
@@ -53,35 +53,42 @@ This extension requires **two** API configurations. Both must be set up or extra
 3. Enable these APIs:
    - Google Sheets API
    - Google Drive API
-4. Create OAuth 2.0 consent screen (External)
-5. Create OAuth 2.0 Client ID credentials (Desktop application)
-6. Download the credentials JSON file
+4. Configure the OAuth consent screen (External). While the app is in **Testing**, add your Google account under **Test users** (otherwise sign-in is blocked)
+5. Create OAuth 2.0 Client ID credentials of type **Chrome Extension** — *not* Desktop or Web. `chrome.identity.getAuthToken` only works with a Chrome Extension client
+6. Set the client's **Item ID** to this extension's ID: `nkogdebkolhahnmhgoeciohcifhflejj`
+7. Copy the generated Client ID into `package.json` → `manifest.oauth2.client_id`
 
-### 3. Set Environment Variables
+### 3. Configure the Extension
 
-Create a `.env` file in the project root:
+All configuration happens at runtime in the extension's **Options page** — you don't need a `.env` file.
 
-```bash
-PLASMO_PUBLIC_OPENAI_API_KEY=your-openai-api-key-here
-PLASMO_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id-here
-PLASMO_PUBLIC_GOOGLE_API_KEY=your-google-api-key-here
-PLASMO_PUBLIC_GOOGLE_SHEET_ID=your-sheet-id-here
+After installing (or with `npm run dev` running):
+
+1. Click the extension icon in Chrome (or right-click → Options)
+2. Enter your **DeepSeek API key** and **Google Sheet ID**
+3. Click "Test Connection" — this prompts for Google sign-in via OAuth
+
+> **Why not `.env`?** Plasmo inlines any `PLASMO_PUBLIC_*` variable into the built bundle, which would ship your API keys inside the packaged extension. Runtime config via the Options page keeps secrets in `chrome.storage` only. (`PLASMO_PUBLIC_GOOGLE_SHEET_ID` remains available as a non-secret default for personal dev.)
+
+### 4. Google Sign-In
+
+The extension signs in with `chrome.identity.getAuthToken`, which requires an OAuth client of type **Chrome Extension** whose **Item ID** is bound to this extension's ID.
+
+The extension ID is pinned in `package.json` (`manifest.key`), so it stays the same across dev/prod builds and machines:
+
+```
+Extension ID:  nkogdebkolhahnmhgoeciohcifhflejj
+Redirect URI:  https://nkogdebkolhahnmhgoeciohcifhflejj.chromiumapp.org/   (derived automatically — do not enter manually)
 ```
 
-**How to find each value:**
+The `client_id` currently in `package.json` belongs to the author's Google Cloud project. To run against your own project:
 
-- `PLASMO_PUBLIC_OPENAI_API_KEY`: From OpenAI Platform API keys page
-- `PLASMO_PUBLIC_GOOGLE_CLIENT_ID`: From Google Cloud Console → Credentials → OAuth 2.0 Client ID
-- `PLASMO_PUBLIC_GOOGLE_API_KEY`: From the credentials (API key field)
-- `PLASMO_PUBLIC_GOOGLE_SHEET_ID`: From your Google Sheet URL
+1. Create an OAuth client of type **Chrome Extension**, Item ID = `nkogdebkolhahnmhgoeciohcifhflejj`
+2. Add `https://www.googleapis.com/auth/spreadsheets` to the consent screen's scopes
+3. Replace `client_id` in `package.json` → `manifest.oauth2`
+4. Reload the extension in `chrome://extensions`
 
-### 4. Configure Extension Options
-
-1. Run the extension (see below)
-2. Click the extension icon in Chrome
-3. Click "Options" or the gear icon
-4. Paste your API credentials in the settings form
-5. Test the connection
+> **Common error:** `Error 400: invalid_request` ("IG Event Agent sent an invalid request") means the OAuth client is the wrong type (Desktop/Web instead of Chrome Extension) or its Item ID doesn't match the extension ID above. If the app's consent screen is in Testing mode, also confirm your Google account is listed as a test user.
 
 ### 5. Run the Extension
 
@@ -130,7 +137,7 @@ Google OAuth tokens automatically expire after 1 hour. The extension handles thi
 
 ### Rate Limits
 
-- **OpenAI API**: Monitor your usage at [OpenAI Platform](https://platform.openai.com/account/usage/overview)
+- **DeepSeek API**: Monitor your usage at [DeepSeek Platform](https://platform.deepseek.com/)
 - **Google Sheets API**: Free tier allows 500 requests/minute
 - If you hit rate limits, wait a moment and retry
 
@@ -146,11 +153,9 @@ The extension includes automatic retry logic:
 
 ### "API key not configured" Error
 
-**Solution**: Open extension options and verify all API keys are filled in:
+**Solution**: Open extension options and verify both settings are filled in:
 
-- OpenAI API key
-- Google Client ID
-- Google API key
+- DeepSeek API key
 - Google Sheet ID
 
 ### "Google authentication failed"
@@ -161,6 +166,15 @@ The extension includes automatic retry logic:
 - Invalid credentials: Verify your Google credentials in extension options
 - Missing permissions: Ensure Google OAuth consent screen allows your account
 
+### Google sign-in fails with "Error 400: invalid_request" / "Custom URI scheme is not supported on Chrome apps"
+
+**Use Google Chrome.** `chrome.identity.getAuthToken` relies on Chrome's built-in Google
+account integration; Brave (and some other Chromium forks) don't implement it and return this
+error regardless of how the OAuth client is configured. The same build signs in fine in Chrome.
+
+If you're already on Chrome, then the OAuth client is misconfigured — see [Google Sign-In](#4-google-sign-in):
+it must be type **Chrome Extension** with Item ID `nkogdebkolhahnmhgoeciohcifhflejj`.
+
 ### No events extracted
 
 **Check these**:
@@ -168,7 +182,7 @@ The extension includes automatic retry logic:
 1. Ensure posts have **all three required fields**: date + time + location
 2. Verify the date range includes event dates
 3. Check the browser console (F12 → Console) for error messages
-4. Verify OpenAI API key is valid at [OpenAI Platform](https://platform.openai.com/account/api-keys)
+4. Verify DeepSeek API key is valid at [DeepSeek Platform](https://platform.deepseek.com/)
 
 ### Image analysis not working
 
@@ -176,7 +190,7 @@ The extension automatically retries image downloads. If images still fail:
 
 1. Check your internet connection
 2. Try a smaller date range with fewer posts
-3. Check OpenAI API status at [OpenAI Status Page](https://status.openai.com/)
+3. Check DeepSeek API status at [DeepSeek Platform](https://platform.deepseek.com/)
 
 ### "No active tab found" Error
 
@@ -216,7 +230,7 @@ Extracted events are saved to Google Sheets with these columns:
 - **Plasmo**: Chrome extension framework
 - **Vue 3**: UI framework with Composition API
 - **TypeScript**: Type safety
-- **OpenAI SDK**: GPT-4 and Vision API access
+- **OpenAI SDK**: wired to DeepSeek's OpenAI-compatible API (deepseek-flash, text + vision)
 - **Google Sheets API**: Data storage
 - **Lucide Icons**: UI icons
 
@@ -232,5 +246,5 @@ For issues or questions:
 2. Review error messages in browser console (F12 → Console tab)
 3. Verify all API credentials are correct and active
 4. Check API status pages:
-   - [OpenAI Status](https://status.openai.com/)
+   - [DeepSeek Platform](https://platform.deepseek.com/)
    - [Google Cloud Status](https://status.cloud.google.com/)

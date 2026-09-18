@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
-    "package": "plasmo package"
+    "package": "plasmo package",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@plasmohq/messaging": "^0.6.2",
@@ -22,13 +24,15 @@
     "@types/node": "^20.10.0",
     "plasmo": "^0.88.0",
     "sass": "^1.69.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^5.0.1"
   },
   "manifest": {
     "host_permissions": [
       "https://www.instagram.com/*",
       "https://instagram.com/*",
-      "https://sheets.googleapis.com/*"
+      "https://sheets.googleapis.com/*",
+      "https://api.deepseek.com/*"
     ],
     "permissions": [
       "storage",
@@ -38,8 +42,9 @@
       "scripting",
       "sidePanel"
     ],
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArDneeREs4GOPdtpPUy1VZQZFEMree++ryZTo4KhSHeRaOC0LGuYR7THcaaVcsMqyfg1Ceiu55v9+B9uu23UyGFdy7RvIkTFokrXVC2shWeHFmitAreq2x7s4jP9+WMTRbhfCS2vnYLLmjokfPp7+JW4fHszvtRx2E70zxd46XmlBAOV11kryueIZ1EuOZ47av4MWLScZzFkAf9Ot9mvbzQvcdXTx7WQIKx1S3wsJMUq+hLvImMirVq7EQDOg/j3dgsdBFf82QD16KzWyHll6xhyR5JLJh6uEAlp3JOWSGcWQEX0COODUFrlTuWr3LMJVEmZfZUqjb16Vbdo+OcSZRQIDAQAB",
     "oauth2": {
-      "client_id": "1058639386381-uf7nhv3k603v97dmk89mvh956731h1n2.apps.googleusercontent.com",
+      "client_id": "1058639386381-ave92igd1o9u819h1ond2codvjjdkf82.apps.googleusercontent.com",
       "scopes": [
         "https://www.googleapis.com/auth/spreadsheets"
       ]

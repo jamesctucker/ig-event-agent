@@ -3,23 +3,23 @@ import { Storage } from '@plasmohq/storage'
 const storage = new Storage()
 
 export interface ApiConfig {
-  openaiApiKey?: string
-  googleClientId?: string
-  googleApiKey?: string
+  deepseekApiKey?: string
   googleSheetId?: string
 }
 
 /**
- * Get API configuration from storage
+ * Get API configuration from storage.
+ *
+ * Secrets (DeepSeek key) are intentionally NOT read from PLASMO_PUBLIC_* env vars:
+ * Plasmo inlines those into the bundle at build time, which would ship your key
+ * inside the packaged zip. Secrets are entered at runtime via the Options page
+ * and live only in chrome.storage.
  */
 export async function getApiConfig(): Promise<ApiConfig> {
   const config = await storage.get<ApiConfig>('apiConfig')
 
-  // Fallback to environment variables if not in storage
   return {
-    openaiApiKey: config?.openaiApiKey || process.env.PLASMO_PUBLIC_OPENAI_API_KEY,
-    googleClientId: config?.googleClientId || process.env.PLASMO_PUBLIC_GOOGLE_CLIENT_ID,
-    googleApiKey: config?.googleApiKey || process.env.PLASMO_PUBLIC_GOOGLE_API_KEY,
+    deepseekApiKey: config?.deepseekApiKey,
     googleSheetId: config?.googleSheetId || process.env.PLASMO_PUBLIC_GOOGLE_SHEET_ID
   }
 }
@@ -39,13 +39,11 @@ export async function clearApiConfig(): Promise<void> {
 }
 
 /**
- * Check if API is configured
+ * Check if the extension is configured well enough to run extraction.
  */
 export async function isApiConfigured(): Promise<boolean> {
   const config = await getApiConfig()
-  return Boolean(
-    config.openaiApiKey && config.googleClientId && config.googleApiKey && config.googleSheetId
-  )
+  return Boolean(config.deepseekApiKey && config.googleSheetId)
 }
 
 /**

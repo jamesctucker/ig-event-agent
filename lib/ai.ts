@@ -1,48 +1,111 @@
 import OpenAI from 'openai'
+import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions'
 import { getApiConfig } from './storage'
+import type { AnalysisResult, EventInfo } from './events'
+import { withCompleteness } from './events'
 
-let openaiInstance: OpenAI | null = null
+/**
+ * DeepSeek official API client (OpenAI-compatible).
+ * Docs: https://api-docs.deepseek.com
+ *
+ * Model: deepseek-flash (DeepSeek-V4.1-Flash) — the only official DeepSeek model
+ * with vision support. JSON output supported via response_format: json_object.
+ *
+ * Thinking mode is explicitly DISABLED (extra_body.thinking.type): it is on by
+ * default, ignores temperature, and adds latency/cost per call — wrong tradeoffs
+ * for deterministic structured extraction at 2 calls per post.
+ */
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+const DEEPSEEK_MODEL = 'deepseek-flash'
 
-async function getOpenAI(): Promise<OpenAI> {
-  if (openaiInstance) {
-    return openaiInstance
+let deepseekInstance: OpenAI | null = null
+
+async function getDeepSeek(): Promise<OpenAI> {
+  if (deepseekInstance) {
+    return deepseekInstance
   }
 
   const config = await getApiConfig()
 
-  if (!config.openaiApiKey) {
-    throw new Error('OpenAI API key not configured')
+  if (!config.deepseekApiKey) {
+    throw new Error('DeepSeek API key not configured')
   }
 
-  openaiInstance = new OpenAI({
-    apiKey: config.openaiApiKey,
+  deepseekInstance = new OpenAI({
+    apiKey: config.deepseekApiKey,
+    baseURL: DEEPSEEK_BASE_URL,
     dangerouslyAllowBrowser: true // Required for browser extension
   })
 
-  return openaiInstance
-}
-
-interface EventInfo {
-  hasEventInfo: boolean
-  name?: string // Event name/title
-  date?: string // Event date (MM/DD/YYYY format preferred)
-  start?: string // Start time
-  location?: string // Venue/location
-  organizer?: string // Event organizer/host
-  cost?: string // Cost/price (e.g., "Free", "$15", "Free (registration required)")
-  summary?: string // Event description/summary (max 25 words)
+  return deepseekInstance
 }
 
 /**
- * Analyze caption text to extract event information
+ * DeepSeek docs call for `thinking: { type: 'disabled' }` in the request body
+ * (thinking mode is ON by default; it ignores temperature and adds latency/cost —
+ * wrong tradeoffs for deterministic structured extraction at 2 calls per post).
+ * The openai-node 4.x SDK serializes the create() params object as-is, so unknown
+ * top-level fields are passed through to the JSON body.
+ */
+const DEEPSEEK_EXTRA_PARAMS = { thinking: { type: 'disabled' } }
+
+/**
+ * Classify a DeepSeek SDK error into a kind the caller can act on.
+ * Auth/billing/rate-limit failures are systemic and must never be mistaken for
+ * "no event found". (402 = insufficient balance per DeepSeek error codes.)
+ */
+function classifyDeepSeekError(error: unknown): {
+  kind: 'auth' | 'billing' | 'rate-limit' | 'api'
+  message: string
+} {
+  const anyErr = error as { status?: number; message?: string }
+  const status = anyErr?.status
+  const message = anyErr?.message || 'Unknown DeepSeek error'
+
+  if (status === 401 || status === 403) {
+    return {
+      kind: 'auth',
+      message: `DeepSeek authentication failed (${status}): check your API key in Options.`
+    }
+  }
+  if (status === 402) {
+    return {
+      kind: 'billing',
+      message: 'DeepSeek account balance is insufficient (402). Top up at platform.deepseek.com.'
+    }
+  }
+  if (status === 429) {
+    return { kind: 'rate-limit', message: 'DeepSeek rate limit hit (429). Wait a moment and retry.' }
+  }
+  return { kind: 'api', message: `DeepSeek request failed${status ? ` (${status})` : ''}: ${message}` }
+}
+
+/** Parse and structurally validate the JSON body of a DeepSeek response. */
+function parseEventInfoJson(result: string, sourceLabel: string): EventInfo | null {
+  try {
+    const eventInfo = JSON.parse(result) as EventInfo
+    if (!eventInfo || typeof eventInfo.hasEventInfo !== 'boolean') {
+      throw new Error('Invalid response structure: missing or invalid hasEventInfo field')
+    }
+    return eventInfo
+  } catch (error) {
+    console.error(`Failed to parse AI ${sourceLabel} response:`, result, error)
+    return null
+  }
+}
+
+/**
+ * Analyze caption text to extract event information.
+ * Returns { status: 'ok' } even when the caption contains no event — a non-ok
+ * status means the analysis itself failed and must be surfaced to the user.
  */
 export async function analyzeCaption(
   caption: string,
   startDate?: string,
   endDate?: string
-): Promise<EventInfo> {
+): Promise<AnalysisResult> {
   try {
-    const openai = await getOpenAI()
+    const client = await getDeepSeek()
 
     // Calculate the year from the date range to help with year-less dates
     const year = startDate ? new Date(startDate).getFullYear() : new Date().getFullYear()
@@ -86,8 +149,8 @@ Respond in JSON format (ALWAYS fill in fields that are mentioned, even if hasEve
   "summary": "event description (extract even without date/time)"
 }`
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+    const response = await client.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       messages: [
         {
           role: 'system',
@@ -100,53 +163,55 @@ Respond in JSON format (ALWAYS fill in fields that are mentioned, even if hasEve
         }
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.3
-    })
+      temperature: 0.3,
+      ...DEEPSEEK_EXTRA_PARAMS
+      // Cast: the SDK serializes the body as-is, so deepseek-specific fields reach
+      // the wire; the OpenAI typings just don't know about them.
+    } as ChatCompletionCreateParamsNonStreaming)
 
     const result = response.choices[0]?.message?.content
     if (!result) {
-      console.log('No result from OpenAI caption analysis')
-      return { hasEventInfo: false }
-    }
-
-    let eventInfo: EventInfo
-    try {
-      eventInfo = JSON.parse(result)
-      // Validate response structure
-      if (!eventInfo || typeof eventInfo.hasEventInfo !== 'boolean') {
-        throw new Error('Invalid response structure: missing or invalid hasEventInfo field')
+      // DeepSeek JSON mode docs warn it can occasionally return empty content
+      console.warn('No result from DeepSeek caption analysis')
+      return {
+        status: 'error',
+        kind: 'api',
+        message: 'DeepSeek returned an empty response for caption analysis'
       }
-    } catch (error) {
-      console.error('Failed to parse AI response:', result, error)
-      return { hasEventInfo: false }
-    }
-    console.log('Caption analysis result:', eventInfo)
-
-    // Validate that if hasEventInfo is true, we have the required fields
-    if (eventInfo.hasEventInfo && (!eventInfo.start || !eventInfo.date)) {
-      console.log('⚠️ Event marked as incomplete: missing required date or start time')
-      // Keep the extracted fields but mark as incomplete
-      return { ...eventInfo, hasEventInfo: false }
     }
 
-    return eventInfo
+    const parsed = parseEventInfoJson(result, 'caption')
+    if (!parsed) {
+      return {
+        status: 'error',
+        kind: 'parse',
+        message: 'DeepSeek caption response was not valid JSON'
+      }
+    }
+    console.log('Caption analysis result:', parsed)
+
+    // Re-stamp hasEventInfo through the single completeness gate (date + start + location);
+    // keep partial fields even when the event is incomplete so they can merge with the image side.
+    return { status: 'ok', info: withCompleteness(parsed) }
   } catch (error) {
     console.error('Error analyzing caption:', error)
-    return { hasEventInfo: false }
+    const { kind, message } = classifyDeepSeekError(error)
+    return { status: 'error', kind, message }
   }
 }
 
 /**
- * Analyze image to extract event information using GPT-4 Vision
- * @param imageUrl - Can be a URL or base64 data URI
+ * Analyze image to extract event information using DeepSeek vision.
+ * @param imageUrl - Base64 data URI (Instagram CDN requires auth, so we always
+ *                   convert to base64 first — see extractEvents.ts)
  */
 export async function analyzeImage(
   imageUrl: string,
   startDate?: string,
   endDate?: string
-): Promise<EventInfo> {
+): Promise<AnalysisResult> {
   try {
-    const openai = await getOpenAI()
+    const client = await getDeepSeek()
 
     // Calculate the year from the date range to help with year-less dates
     const year = startDate ? new Date(startDate).getFullYear() : new Date().getFullYear()
@@ -188,8 +253,8 @@ Respond in JSON format (ALWAYS fill in visible fields, even if hasEventInfo is f
   "summary": "event description (extract even without date/time)"
 }`
 
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4.1',
+    const response = await client.chat.completions.create({
+      model: DEEPSEEK_MODEL,
       messages: [
         {
           role: 'system',
@@ -215,60 +280,38 @@ Respond in JSON format (ALWAYS fill in visible fields, even if hasEventInfo is f
       ],
       response_format: { type: 'json_object' },
       temperature: 0.3,
-      max_tokens: 500
-    })
+      max_tokens: 500,
+      ...DEEPSEEK_EXTRA_PARAMS
+      // Cast: the SDK serializes the body as-is, so deepseek-specific fields reach
+      // the wire; the OpenAI typings just don't know about them.
+    } as ChatCompletionCreateParamsNonStreaming)
 
     const result = response.choices[0]?.message?.content
     if (!result) {
-      console.log('No result from OpenAI image analysis')
-      return { hasEventInfo: false }
-    }
-
-    let eventInfo: EventInfo
-    try {
-      eventInfo = JSON.parse(result)
-      // Validate response structure
-      if (!eventInfo || typeof eventInfo.hasEventInfo !== 'boolean') {
-        throw new Error('Invalid response structure: missing or invalid hasEventInfo field')
+      console.warn('No result from DeepSeek image analysis')
+      return {
+        status: 'error',
+        kind: 'api',
+        message: 'DeepSeek returned an empty response for image analysis'
       }
-    } catch (error) {
-      console.error('Failed to parse AI response:', result, error)
-      return { hasEventInfo: false }
-    }
-    console.log('Image analysis result:', eventInfo)
-
-    // Validate that if hasEventInfo is true, we have the required fields
-    if (eventInfo.hasEventInfo && (!eventInfo.start || !eventInfo.date)) {
-      console.log('⚠️ Event marked as incomplete: missing required date or start time')
-      // Keep the extracted fields but mark as incomplete
-      return { ...eventInfo, hasEventInfo: false }
     }
 
-    return eventInfo
+    const parsed = parseEventInfoJson(result, 'image')
+    if (!parsed) {
+      return {
+        status: 'error',
+        kind: 'parse',
+        message: 'DeepSeek image response was not valid JSON'
+      }
+    }
+    console.log('Image analysis result:', parsed)
+
+    // Same completeness gate as the caption path (date + start + location);
+    // partial fields are kept so they can merge with the caption side.
+    return { status: 'ok', info: withCompleteness(parsed) }
   } catch (error) {
     console.error('Error analyzing image:', error)
-    return { hasEventInfo: false }
+    const { kind, message } = classifyDeepSeekError(error)
+    return { status: 'error', kind, message }
   }
-}
-
-/**
- * Batch analyze multiple images (for efficiency)
- */
-export async function analyzeImagesBatch(imageUrls: string[]): Promise<EventInfo[]> {
-  const results: EventInfo[] = []
-
-  // Process in batches of 5 to avoid rate limits
-  const batchSize = 5
-  for (let i = 0; i < imageUrls.length; i += batchSize) {
-    const batch = imageUrls.slice(i, i + batchSize)
-    const batchResults = await Promise.all(batch.map(url => analyzeImage(url)))
-    results.push(...batchResults)
-
-    // Small delay between batches
-    if (i + batchSize < imageUrls.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000))
-    }
-  }
-
-  return results
 }

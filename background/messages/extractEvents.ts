@@ -2,20 +2,24 @@
  * Extract Events from Instagram Saved Collections
  *
  * This module fetches posts from Instagram's private API endpoint, which provides
- * full captions and metadata in a structured format. This is much faster and more
+ * full captions and metadata in a structured format. Much faster and more
  * reliable than DOM scraping individual posts.
  *
- * API Endpoint: /api/v1/feed/collection/{collectionId}/posts/
+ * API Endpoint: /api/v1/feed/collection/{id}/posts/ (paginated via next_max_id)
  * Falls back to DOM scraping if API fetch fails.
  */
 
 import type { PlasmoMessaging } from '@plasmohq/messaging'
 import { analyzeCaption, analyzeImage } from '~lib/ai'
 import { retry } from '~lib/utils'
+import { mergeEventInfo, type AnalysisResult, type EventInfo } from '~lib/events'
+
+/** Safety cap on Instagram feed pagination — prevents runaway loops on huge collections */
+const MAX_FEED_PAGES = 10
 
 /**
  * Convert Instagram image URL to base64 data URI
- * This is needed because OpenAI can't access Instagram's protected CDN URLs
+ * This is needed because DeepSeek can't access Instagram's protected CDN URLs
  * Includes retry logic with exponential backoff for network failures
  */
 async function imageUrlToBase64(url: string): Promise<string | null> {
@@ -45,117 +49,120 @@ async function imageUrlToBase64(url: string): Promise<string | null> {
 }
 
 /**
- * Merge event information from caption and image analysis
- * Strategy: Prioritize image for structured data (date/time/location) as it's more reliable,
- * but prefer caption for descriptive data (summary/name) as it's often better written
+ * Send a UI progress message without ever throwing.
  *
- * Even if neither source has complete event info, we still merge partial data and check
- * if the combination creates a complete event.
+ * The side panel is the only listener for these messages; Chrome's side panel
+ * can close while extraction is still running, and chrome.runtime.sendMessage
+ * rejects with "Receiving end does not exist" when no page is listening.
+ * Ordering is preserved (still awaited), but a missing UI must never abort
+ * the extraction run.
  */
-function mergeEventInfo(
-  captionInfo: any,
-  imageInfo: any
-): { hasEventInfo: boolean; [key: string]: any } {
-  // If both are completely null/undefined, return false
-  if (!captionInfo && !imageInfo) {
-    return { hasEventInfo: false }
-  }
-
-  // If only one source exists, return that one
-  if (!captionInfo) {
-    return imageInfo
-  }
-  if (!imageInfo) {
-    return captionInfo
-  }
-
-  // Merge data from both sources (even if neither has hasEventInfo=true)
-  const merged = {
-    // Prefer caption name if available (usually better written), else image
-    name: captionInfo.name || imageInfo.name,
-    // Prefer image for date/time/location (more reliable from flyers)
-    date: imageInfo.date || captionInfo.date,
-    start: imageInfo.start || captionInfo.start,
-    location: imageInfo.location || captionInfo.location,
-    // Prefer caption for organizer (often mentioned in text)
-    organizer: captionInfo.organizer || imageInfo.organizer,
-    // Prefer either for cost (take first available)
-    cost: captionInfo.cost || imageInfo.cost,
-    // Prefer caption summary (usually more descriptive)
-    summary: captionInfo.summary || imageInfo.summary
-  }
-
-  // After merging, check if we now have complete event info
-  // Per spec: An event is complete if it has specific date + start time + LOCATION (location is required)
-  const hasCompleteInfo = !!(merged.date && merged.start && merged.location)
-
-  return {
-    hasEventInfo: hasCompleteInfo,
-    ...merged
+async function notifyUI(message: unknown): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage(message)
+  } catch {
+    // Side panel closed (or never opened) — progress simply goes nowhere.
   }
 }
 
 /**
- * Fetch posts from Instagram's private API
+ * Fetch ALL posts from Instagram's private collection API, following
+ * next_max_id pagination until the collection is exhausted (or MAX_FEED_PAGES is hit).
  */
 async function fetchPostsFromAPI(collectionId: string, tabId: number): Promise<Post[]> {
   try {
-    const apiUrl = `https://www.instagram.com/api/v1/feed/collection/${collectionId}/posts/`
-
-    // Execute fetch in the context of the Instagram tab (to get cookies)
+    // Execute fetch in the context of the Instagram tab (to get cookies).
+    // The whole pagination loop runs inside the page (one executeScript call)
+    // to avoid repeated serialization round-trips per page.
     const result = await chrome.scripting.executeScript({
       target: { tabId },
-      func: async (url: string) => {
+      func: async (startUrl: string, maxPages: number) => {
         try {
-          const response = await fetch(url, {
-            headers: {
-              'x-ig-app-id': '936619743392459',
-              'x-requested-with': 'XMLHttpRequest'
-            },
-            credentials: 'include'
-          })
+          const allItems: any[] = []
+          let url: string | null = startUrl
+          let pages = 0
 
-          if (!response.ok) {
-            throw new Error(`API returned ${response.status}`)
+          while (url && pages < maxPages) {
+            const response: Response = await fetch(url, {
+              headers: {
+                'x-ig-app-id': '936619743392459',
+                'x-requested-with': 'XMLHttpRequest'
+              },
+              credentials: 'include'
+            })
+
+            if (!response.ok) {
+              return { error: `API returned ${response.status}`, items: allItems, pages }
+            }
+
+            const data: any = await response.json()
+            if (Array.isArray(data.items)) {
+              allItems.push(...data.items)
+            }
+            pages++
+
+            if (data.more_available && data.next_max_id) {
+              const separator = startUrl.includes('?') ? '&' : '?'
+              url = `${startUrl}${separator}max_id=${encodeURIComponent(data.next_max_id)}`
+            } else {
+              url = null
+            }
           }
 
-          const data = await response.json()
-          return data
+          return { error: null, items: allItems, pages }
         } catch (error) {
           console.error('Error fetching from API:', error)
           return null
         }
       },
-      args: [apiUrl]
+      args: [
+        `https://www.instagram.com/api/v1/feed/collection/${collectionId}/posts/`,
+        MAX_FEED_PAGES
+      ]
     })
 
     if (!result || !result[0] || !result[0].result) {
       throw new Error('Failed to fetch from Instagram API')
     }
 
-    const apiResponse = result[0].result
+    const apiResponse = result[0].result as {
+      error: string | null
+      items: any[]
+      pages: number
+    }
+
     const posts: Post[] = []
+    for (const item of apiResponse.items) {
+      const media = item.media
+      if (!media) continue
 
-    if (apiResponse.items && Array.isArray(apiResponse.items)) {
-      for (const item of apiResponse.items) {
-        const media = item.media
-        if (!media) continue
+      const caption = media.caption?.text || ''
+      const code = media.code || ''
+      const imageUrl =
+        media.image_versions2?.candidates?.[0]?.url ||
+        media.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url ||
+        ''
+      const timestamp = media.taken_at ? media.taken_at * 1000 : undefined
 
-        const caption = media.caption?.text || ''
-        const code = media.code || ''
-        const imageUrl =
-          media.image_versions2?.candidates?.[0]?.url ||
-          media.carousel_media?.[0]?.image_versions2?.candidates?.[0]?.url ||
-          ''
-        const timestamp = media.taken_at ? media.taken_at * 1000 : undefined
+      posts.push({
+        imageUrl,
+        caption,
+        postUrl: `https://www.instagram.com/p/${code}/`,
+        timestamp
+      })
+    }
 
-        posts.push({
-          imageUrl,
-          caption,
-          postUrl: `https://www.instagram.com/p/${code}/`,
-          timestamp
-        })
-      }
+    console.log(
+      `Fetched ${posts.length} posts from Instagram API across ${apiResponse.pages} page(s)` +
+        (apiResponse.pages >= MAX_FEED_PAGES ? ` (stopped at MAX_FEED_PAGES=${MAX_FEED_PAGES})` : '')
+    )
+
+    if (apiResponse.error) {
+      // Partial failure: some pages loaded, later page failed. Keep what we got,
+      // but log loudly — truncation without a log line is how partial data looks like success.
+      console.warn(
+        `⚠️ Collection fetch incomplete after ${apiResponse.pages} page(s): ${apiResponse.error}`
+      )
     }
 
     return posts
@@ -231,40 +238,33 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
       })
     }
 
-    console.log(`Found ${posts.length} posts from API`)
-
     // Don't filter by post timestamp - we want to analyze ALL posts
     // because the EVENT date (in the caption) might be different from
     // when the post was created. The AI will filter by event date.
     const filteredPosts = posts
+    const totalPosts = filteredPosts.length
 
-    if (filteredPosts.length === 0) {
-      return res.send({
-        success: true,
-        events: [],
-        message: 'No posts found in this collection'
-      })
-    }
-
-    // Send progress update
-    await chrome.runtime.sendMessage({
+    // Send initial progress (no-op if the panel is closed)
+    await notifyUI({
       type: 'progress',
-      progress: { current: 0, total: filteredPosts.length }
+      progress: { current: 0, total: totalPosts }
     })
 
     // Extract event information from each post
     const events = []
+    let failedPosts = 0
+    let failureNote: string | null = null
 
     for (let i = 0; i < filteredPosts.length; i++) {
       const post = filteredPosts[i]
 
-      // Update progress and show current post - use await to ensure ordering
-      await chrome.runtime.sendMessage({
+      // Update progress and show current post (survives a closed side panel)
+      await notifyUI({
         type: 'progress',
-        progress: { current: i + 1, total: filteredPosts.length }
+        progress: { current: i + 1, total: totalPosts }
       })
 
-      await chrome.runtime.sendMessage({
+      await notifyUI({
         type: 'currentPost',
         post: post
       })
@@ -275,19 +275,42 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
         console.log('=== Processing post:', post.postUrl, '===')
         console.log('Caption length:', caption.length)
 
-        let captionInfo = null
-        let imageInfo = null
+        let captionInfo: EventInfo | null = null
+        let imageInfo: EventInfo | null = null
+        // Each post runs up to two analyses (caption + image). A post only counts
+        // as "failed" when BOTH analyses errored — partial degradation still merges.
+        let captionFailed = false
+        let imageFailed = false
 
         // Step 1: Analyze caption
         if (caption && caption.length > 20) {
           console.log('📝 Step 1: Analyzing caption...')
-          captionInfo = await analyzeCaption(caption, startDate, endDate)
-          console.log('Caption analysis result:', {
-            hasEventInfo: captionInfo?.hasEventInfo,
-            hasDate: !!captionInfo?.date,
-            hasStart: !!captionInfo?.start,
-            hasSummary: !!captionInfo?.summary
-          })
+          const captionResult: AnalysisResult = await analyzeCaption(caption, startDate, endDate)
+          if (captionResult.status === 'error') {
+            captionFailed = true
+            console.error('❌ Caption analysis failed:', captionResult.kind, captionResult.message)
+            // Auth and billing failures are systemic, not post-specific — stop the run
+            // instead of reporting "no events found" after burning through every post.
+            if (captionResult.kind === 'auth' || captionResult.kind === 'billing') {
+              return res.send({
+                success: false,
+                error: captionResult.message,
+                failedPosts: i + 1,
+                totalPosts
+              })
+            }
+            if (captionResult.kind === 'rate-limit') {
+              failureNote = captionResult.message
+            }
+          } else {
+            captionInfo = captionResult.info
+            console.log('Caption analysis result:', {
+              hasEventInfo: captionInfo?.hasEventInfo,
+              hasDate: !!captionInfo?.date,
+              hasStart: !!captionInfo?.start,
+              hasSummary: !!captionInfo?.summary
+            })
+          }
         } else {
           console.log('⏭️ Skipping caption analysis (too short or empty)')
         }
@@ -300,22 +323,53 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
 
           if (base64Image) {
             console.log('✅ Image converted, analyzing with Vision AI...')
-            imageInfo = await analyzeImage(base64Image, startDate, endDate)
-            console.log('Image analysis result:', {
-              hasEventInfo: imageInfo?.hasEventInfo,
-              hasDate: !!imageInfo?.date,
-              hasStart: !!imageInfo?.start,
-              hasSummary: !!imageInfo?.summary
-            })
+            const imageResult: AnalysisResult = await analyzeImage(base64Image, startDate, endDate)
+            if (imageResult.status === 'error') {
+              imageFailed = true
+              console.error('❌ Image analysis failed:', imageResult.kind, imageResult.message)
+              if (imageResult.kind === 'auth' || imageResult.kind === 'billing') {
+                return res.send({
+                  success: false,
+                  error: imageResult.message,
+                  failedPosts: i + 1,
+                  totalPosts
+                })
+              }
+              if (imageResult.kind === 'rate-limit') {
+                failureNote = imageResult.message
+              }
+            } else {
+              imageInfo = imageResult.info
+              console.log('Image analysis result:', {
+                hasEventInfo: imageInfo?.hasEventInfo,
+                hasDate: !!imageInfo?.date,
+                hasStart: !!imageInfo?.start,
+                hasSummary: !!imageInfo?.summary
+              })
+            }
           } else {
+            imageFailed = true
             console.warn('⚠️ Image unavailable for post', post.postUrl)
           }
         } else {
           console.log('❌ No image URL available')
         }
 
-        // Merge results: prioritize image for structured data (date/time/location),
-        // but keep caption for descriptive data (summary/name)
+        // A post only counts as failed when every attempted analysis errored out —
+        // distinguished from a successfully-analyzed post that contains no event.
+        const attemptedCaption = Boolean(caption && caption.length > 20)
+        const attemptedImage = Boolean(post.imageUrl)
+        const attempts = [attemptedCaption, attemptedImage].filter(Boolean).length
+        const failures = [attemptedCaption && captionFailed, attemptedImage && imageFailed].filter(
+          Boolean
+        ).length
+        if (attempts > 0 && failures === attempts) {
+          failedPosts++
+        }
+
+        // Merge results: image wins structured data (date/time/location),
+        // caption wins descriptive data (summary/name). Both sides re-stamped
+        // through the shared completeness gate inside mergeEventInfo.
         const mergedInfo = mergeEventInfo(captionInfo, imageInfo)
         console.log('🔀 Merged result:', {
           hasEventInfo: mergedInfo?.hasEventInfo,
@@ -345,13 +399,21 @@ const handler: PlasmoMessaging.MessageHandler<ExtractEventsRequest> = async (req
         }
       } catch (error) {
         console.error(`Error processing post ${post.postUrl}:`, error)
+        failedPosts++
         // Continue with next post
       }
     }
 
+    if (failedPosts > 0) {
+      console.warn(`⚠️ ${failedPosts} of ${totalPosts} posts failed to analyze (vs. "no event found")`)
+    }
+
     res.send({
       success: true,
-      events
+      events,
+      failedPosts,
+      totalPosts,
+      failureNote
     })
   } catch (error) {
     console.error('Error extracting events:', error)

@@ -1,20 +1,9 @@
 import type { PlasmoMessaging } from '@plasmohq/messaging'
 import { saveEventsToGoogleSheets } from '~lib/googleSheets'
-
-interface Event {
-  name?: string
-  url?: string
-  date?: string
-  start?: string
-  location?: string
-  organizer?: string
-  cost?: string
-  summary?: string
-  imageUrl?: string
-}
+import type { ExtractedEvent } from '~lib/events'
 
 interface SaveToSheetsRequest {
-  events: Event[]
+  events: ExtractedEvent[]
 }
 
 const handler: PlasmoMessaging.MessageHandler<SaveToSheetsRequest> = async (req, res) => {
@@ -28,13 +17,18 @@ const handler: PlasmoMessaging.MessageHandler<SaveToSheetsRequest> = async (req,
       })
     }
 
-    // Save to Google Sheets
+    // Save to Google Sheets (initializes headers, dedups by post URL, appends to first tab)
     const result = await saveEventsToGoogleSheets(events)
 
     if (result.success) {
+      const parts = []
+      parts.push(`Saved ${result.saved ?? events.length} event${(result.saved ?? events.length) !== 1 ? 's' : ''}`)
+      if (result.skipped) {
+        parts.push(`skipped ${result.skipped} duplicate${result.skipped !== 1 ? 's' : ''}`)
+      }
       res.send({
         success: true,
-        message: `Successfully saved ${events.length} events to Google Sheets`
+        message: parts.join(', ')
       })
     } else {
       res.send({

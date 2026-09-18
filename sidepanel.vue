@@ -174,29 +174,26 @@ import {
   Loader2
 } from 'lucide-vue-next'
 import { getApiConfig } from '~lib/storage'
+import type { ExtractedEvent } from '~lib/events'
 
-interface ExtractedEvent {
-  name?: string
-  url?: string
-  date?: string
-  start?: string
-  location?: string
-  organizer?: string
-  cost?: string
-  summary?: string
-  imageUrl?: string
-  caption?: string
-}
-
-interface Progress {
-  current: number
-  total: number
+interface ExtractResponse {
+  success: boolean
+  events?: ExtractedEvent[]
+  error?: string
+  failedPosts?: number
+  totalPosts?: number
+  failureNote?: string | null
 }
 
 interface Post {
   imageUrl: string
   caption: string
   postUrl: string
+}
+
+interface Progress {
+  current: number
+  total: number
 }
 
 const isOnInstagram = ref(false)
@@ -281,8 +278,8 @@ async function extractEvents() {
 
     // Validate config before making expensive API calls
     const config = await getApiConfig()
-    if (!config.openaiApiKey) {
-      showStatus('❌ OpenAI API key not configured. Please check the extension options.', 'error')
+    if (!config.deepseekApiKey) {
+      showStatus('❌ DeepSeek API key not configured. Please check the extension options.', 'error')
       return
     }
     if (!config.googleSheetId) {
@@ -292,26 +289,47 @@ async function extractEvents() {
 
     showStatus('Starting extraction...', 'info')
 
-    const response = (await sendToBackground({
+    const response = await sendToBackground<
+      { collectionId: string; startDate: string; endDate: string },
+      ExtractResponse
+    >({
       name: 'extractEvents',
       body: {
         collectionId: 'current',
         startDate: startDate.value,
         endDate: endDate.value
       }
-    } as any)) as any
+    })
 
     if (response.success) {
-      extractedEvents.value = response.events
-      if (response.events.length > 0) {
+      const events = response.events || []
+      extractedEvents.value = events
+      const failed = response.failedPosts || 0
+
+      if (events.length > 0) {
+        let message = `Successfully extracted ${events.length} event${
+          events.length !== 1 ? 's' : ''
+        }!`
+        if (response.failureNote) {
+          message += ` Note: ${response.failureNote}`
+        }
+        showStatus(message, 'success')
+      } else if (failed > 0) {
+        // "Analyzed but failed" is a very different thing from "analyzed, no events" — surface it
         showStatus(
-          `Successfully extracted ${response.events.length} event${
-            response.events.length !== 1 ? 's' : ''
-          }!`,
-          'success'
+          `No events extracted — ${failed} of ${response.totalPosts ?? '?'} posts failed to analyze${
+            response.failureNote ? ` (${response.failureNote})` : ''
+          }. Check the console and your DeepSeek config.`,
+          'error'
         )
       } else {
         showStatus('No events found in this date range', 'info')
+      }
+
+      if (failed > 0 && events.length > 0) {
+        console.warn(
+          `⚠️ ${failed} of ${response.totalPosts ?? '?'} posts failed to analyze (results may be incomplete)`
+        )
       }
     } else {
       showStatus(response.error || 'Failed to extract events', 'error')
@@ -331,15 +349,18 @@ async function saveToGoogleSheets() {
     saving.value = true
     showStatus('Saving to Google Sheets...', 'info')
 
-    const response = (await sendToBackground({
+    const response = await sendToBackground<
+      { events: ExtractedEvent[] },
+      { success: boolean; message?: string; error?: string }
+    >({
       name: 'saveToSheets',
       body: {
         events: extractedEvents.value
       }
-    } as any)) as any
+    })
 
     if (response.success) {
-      showStatus('Successfully saved to Google Sheets!', 'success')
+      showStatus(response.message || 'Successfully saved to Google Sheets!', 'success')
     } else {
       showStatus(response.error || 'Failed to save to Google Sheets', 'error')
     }

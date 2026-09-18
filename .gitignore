@@ -11,6 +11,10 @@ dist/
 .env.local
 .env.*.local
 
+# Extension signing key (private half) — public half is pinned in package.json "manifest.key"
+.keys/
+*.pem
+
 # IDE
 .vscode/
 .idea/

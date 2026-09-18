@@ -7,20 +7,21 @@
 
     <div class="content">
       <form @submit.prevent="saveSettings" class="settings-form">
-        <!-- OpenAI Configuration -->
+        <!-- DeepSeek Configuration -->
         <section class="section">
-          <h2>OpenAI Configuration</h2>
+          <h2>DeepSeek Configuration</h2>
           <p class="description">
-            Required for AI-powered event extraction from captions and images. Get your API key from
-            <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a>.
+            Required for AI-powered event extraction from captions and images
+            (<code>deepseek-flash</code> model). Get your API key from
+            <a href="https://platform.deepseek.com/" target="_blank">DeepSeek Platform</a>.
           </p>
 
           <div class="form-group">
-            <label for="openaiKey">OpenAI API Key</label>
+            <label for="deepseekKey">DeepSeek API Key</label>
             <input
-              id="openaiKey"
+              id="deepseekKey"
               type="password"
-              v-model="config.openaiApiKey"
+              v-model="config.deepseekApiKey"
               placeholder="sk-..."
               required
             />
@@ -31,31 +32,12 @@
         <section class="section">
           <h2>Google Sheets Configuration</h2>
           <p class="description">
-            Configure Google Sheets to save extracted events. Follow the
+            Sign-in is handled via Google OAuth when you first save or test the connection.
+            The only setting needed here is your target Sheet ID (
             <a href="https://developers.google.com/sheets/api/quickstart/js" target="_blank"
               >setup guide</a
-            >.
+            >).
           </p>
-
-          <div class="form-group">
-            <label for="googleClientId">Google Client ID</label>
-            <input
-              id="googleClientId"
-              type="text"
-              v-model="config.googleClientId"
-              placeholder="xxxxx.apps.googleusercontent.com"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="googleApiKey">Google API Key</label>
-            <input
-              id="googleApiKey"
-              type="password"
-              v-model="config.googleApiKey"
-              placeholder="AIza..."
-            />
-          </div>
 
           <div class="form-group">
             <label for="googleSheetId">Google Sheet ID</label>
@@ -101,20 +83,17 @@
 import { ref, onMounted } from 'vue'
 import { Storage } from '@plasmohq/storage'
 import { Settings } from 'lucide-vue-next'
+import { testGoogleSheetsConnection } from '~lib/googleSheets'
 
 interface Config {
-  openaiApiKey: string
-  googleClientId: string
-  googleApiKey: string
+  deepseekApiKey: string
   googleSheetId: string
 }
 
 const storage = new Storage()
 
 const config = ref<Config>({
-  openaiApiKey: '',
-  googleClientId: '',
-  googleApiKey: '',
+  deepseekApiKey: '',
   googleSheetId: ''
 })
 
@@ -124,10 +103,13 @@ const statusMessage = ref('')
 const statusType = ref<'success' | 'error' | 'info'>('info')
 
 onMounted(async () => {
-  // Load saved settings
-  const saved = await storage.get<Config>('apiConfig')
+  // Load saved settings (tolerate extra keys from older configs)
+  const saved = await storage.get<Partial<Config>>('apiConfig')
   if (saved) {
-    config.value = saved
+    config.value = {
+      deepseekApiKey: saved.deepseekApiKey || '',
+      googleSheetId: saved.googleSheetId || ''
+    }
   }
 })
 
@@ -152,16 +134,17 @@ async function testConnection() {
     testing.value = true
     showStatus('Testing Google Sheets connection...', 'info')
 
-    // Test the connection by trying to read the sheet
-    const response = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${config.value.googleSheetId}?key=${config.value.googleApiKey}`
-    )
+    // Test through the same OAuth path a real save uses (triggers the
+    // interactive Google sign-in prompt on first run)
+    const ok = await testGoogleSheetsConnection()
 
-    if (response.ok) {
+    if (ok) {
       showStatus('✓ Google Sheets connection successful!', 'success')
     } else {
-      const error = await response.json()
-      showStatus(`Connection failed: ${error.error?.message || 'Unknown error'}`, 'error')
+      showStatus(
+        'Connection failed. Check the Sheet ID, and confirm the OAuth client is type "Chrome Extension" with Item ID nkogdebkolhahnmhgoeciohcifhflejj (see README §4).',
+        'error'
+      )
     }
   } catch (error) {
     console.error('Error testing connection:', error)

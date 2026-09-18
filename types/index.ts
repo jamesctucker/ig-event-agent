@@ -43,9 +43,7 @@ export interface Progress {
 }
 
 export interface ApiConfig {
-  openaiApiKey?: string
-  googleClientId?: string
-  googleApiKey?: string
+  deepseekApiKey?: string
   googleSheetId?: string
 }
 

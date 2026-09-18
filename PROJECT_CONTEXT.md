@@ -1,5 +1,7 @@
 # Instagram Event Agent - Project Context
 
+> **Note (2026-09-18):** AI provider swapped from OpenAI GPT-4.1 to DeepSeek's official API (`deepseek-flash`, OpenAI-compatible). Mentions of "OpenAI"/"gpt-4.1" below refer to the pre-swap architecture; call shapes are otherwise unchanged. See `lib/ai.ts` and `AGENTS.md` for current details.
+
 ## Overview
 
 A Chrome extension built with Plasmo that extracts event information from Instagram saved collections using AI (OpenAI GPT-4.1) and saves the results to Google Sheets. The extension analyzes both post captions and images to extract complete event details.
